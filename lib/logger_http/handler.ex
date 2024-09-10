@@ -4,6 +4,16 @@ defmodule LoggerHTTP.Handler do
                       type: :string,
                       required: true,
                       doc: "The HTTP endpoint to send logs to."
+                    ],
+                    pool_size: [
+                      type: :integer,
+                      doc: """
+                      LoggerHTTP uses a pool of GenServers to make HTTP requests. The log
+                      are evenly distributed among the processes in the pool. This option
+                      allows you to configure the size of the pool.
+
+                      The default is the result of `max(10, System.schedulers_online())`.
+                      """
                     ]
                   )
 
@@ -19,9 +29,8 @@ defmodule LoggerHTTP.Handler do
 
   ## TODO
 
-  2. batch logs
-  3. add pool of workers, use PartitionSupervisor?
-  3. add overloading protections
+  1. batch logs
+  2. add overloading protections
     1. count logs
     2. if over limit 1, go sync
     3. if over limit 2, drop logs
@@ -32,7 +41,11 @@ defmodule LoggerHTTP.Handler do
 
   # The config for the logger handler
   defstruct [
-    :url
+    :supervisor_pid,
+
+    # Configuration from user options
+    :url,
+    :pool_size
   ]
 
   ## Callbacks for :logger_handler
@@ -43,7 +56,13 @@ defmodule LoggerHTTP.Handler do
     # All keys are optional in the handler config
     config = Map.get(handler_config, :config, %{})
 
-    handler_config = Map.put(handler_config, :config, cast_config(%__MODULE__{}, config))
+    validated_config =
+      %__MODULE__{supervisor_pid: nil}
+      |> cast_config(config)
+      |> start_sender_pool()
+
+    handler_config =
+      Map.put(handler_config, :config, validated_config)
 
     {:ok, handler_config}
   end
@@ -53,10 +72,18 @@ defmodule LoggerHTTP.Handler do
   def log(log_event, handler_config) do
     log_event
     |> format_log_event(handler_config.formatter)
-    |> Sender.send_async(handler_config)
+    |> Sender.send_async()
 
     :ok
   end
+
+  @doc false
+  @spec removing_handler(:logger.handler_config()) :: :ok
+  def removing_handler(handler_config) do
+    Sender.stop_pool(handler_config.config.supervisor_pid)
+  end
+
+  ## Private functions
 
   defp format_log_event(log_event, {formatter, opts}) do
     formatter.format(log_event, opts)
@@ -65,9 +92,15 @@ defmodule LoggerHTTP.Handler do
   defp cast_config(%__MODULE__{} = existing_config, %{} = new_config) do
     validated_config =
       new_config
-      |> Map.to_list()
       |> NimbleOptions.validate!(@options_schema)
+      |> Map.put_new_lazy(:pool_size, fn -> max(10, System.schedulers_online()) end)
 
     struct!(existing_config, validated_config)
+  end
+
+  defp start_sender_pool(%__MODULE__{} = config) do
+    {:ok, supervisor_pid} = Sender.start_pool(config)
+
+    %{config | supervisor_pid: supervisor_pid}
   end
 end

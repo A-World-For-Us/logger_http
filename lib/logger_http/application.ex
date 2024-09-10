@@ -8,8 +8,7 @@ defmodule LoggerHTTP.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      # Starts a worker by calling: LoggerHttp.Worker.start_link(arg)
-      # {LoggerHttp.Worker, arg}
+      {DynamicSupervisor, name: LoggerHTTP.DynamicSupervisor, strategy: :one_for_one}
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
