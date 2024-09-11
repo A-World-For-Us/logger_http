@@ -41,23 +41,52 @@ defmodule LoggerHTTP.Sender do
 
   ## GenServer callbacks
 
-  defstruct [:config]
+  defstruct [:config, :queue, :counter]
 
   @impl GenServer
   def init(config) do
-    {:ok, %__MODULE__{config: config}}
+    state = %__MODULE__{
+      config: config,
+      queue: [],
+      counter: 0
+    }
+
+    {:ok, state}
   end
 
   @impl GenServer
   def handle_cast({:send_log, log_line}, state) do
-    send_log!(log_line, state)
-    {:noreply, state}
+    state
+    |> enqueue_log(log_line)
+    |> reply_to_log_request()
   end
 
-  defp send_log!(log_line, state) do
+  defp enqueue_log(state, log_line) do
+    queue = [log_line | state.queue]
+    counter = state.counter + 1
+
+    %{state | queue: queue, counter: counter}
+  end
+
+  defp reply_to_log_request(state) do
+    if state.counter >= state.config.batch_size do
+      {:noreply, state, {:continue, :process_queue}}
+    else
+      {:noreply, state}
+    end
+  end
+
+  @impl GenServer
+  def handle_continue(:process_queue, state) do
+    logs = Enum.reverse(state.queue)
+    body = Enum.intersperse(logs, ?\n)
+
     # TODO configure http verb
     # TODO handle errors
     # TODO allow other HTTP adapters, make Req dependency optional
-    Req.post!(state.config.url, body: log_line)
+    Req.post!(state.config.url, body: body)
+
+    new_state = %{state | queue: [], counter: 0}
+    {:noreply, new_state}
   end
 end

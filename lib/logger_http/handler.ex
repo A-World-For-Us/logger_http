@@ -5,6 +5,16 @@ defmodule LoggerHTTP.Handler do
                       required: true,
                       doc: "The HTTP endpoint to send logs to."
                     ],
+                    batch_size: [
+                      type: :integer,
+                      default: 10,
+                      doc: """
+                      The maximum number of logs to queue before making an HTTP request.
+                      If the timeout configured by `:batch_timeout` is reached before the
+                      queue as reached the configured size, less logs will be sent. Setting
+                      this parameter to 1 will effectively disable batching.
+                      """
+                    ],
                     pool_size: [
                       type: :integer,
                       doc: """
@@ -45,6 +55,7 @@ defmodule LoggerHTTP.Handler do
 
     # Configuration from user options
     :url,
+    :batch_size,
     :pool_size
   ]
 
