@@ -41,17 +41,18 @@ defmodule LoggerHTTP.Sender do
 
   ## GenServer callbacks
 
-  defstruct [:config, :queue, :counter]
+  defstruct [:config, :queue, :counter, :timeout_ref]
 
   @impl GenServer
   def init(config) do
     state = %__MODULE__{
       config: config,
       queue: [],
-      counter: 0
+      counter: 0,
+      timeout_ref: nil
     }
 
-    {:ok, state}
+    {:ok, state, {:continue, :start_timer}}
   end
 
   @impl GenServer
@@ -77,7 +78,29 @@ defmodule LoggerHTTP.Sender do
   end
 
   @impl GenServer
+  def handle_info(:process_queue, state) do
+    {:noreply, state, {:continue, :process_queue}}
+  end
+
+  @impl GenServer
+  def handle_continue(:start_timer, state) do
+    batch_timeout = state.config.batch_timeout
+
+    ref =
+      if batch_timeout > 0 do
+        Process.send_after(self(), :process_queue, batch_timeout)
+      end
+
+    {:noreply, %{state | timeout_ref: ref}}
+  end
+
   def handle_continue(:process_queue, state) do
+    if state.timeout_ref != nil do
+      # Do not set `:timeout_ref` to nil, the `:start_timer` continue
+      # will override its value anyway.
+      Process.cancel_timer(state.timeout_ref, info: false)
+    end
+
     logs = Enum.reverse(state.queue)
     body = Enum.intersperse(logs, ?\n)
 
@@ -87,6 +110,6 @@ defmodule LoggerHTTP.Sender do
     Req.post!(state.config.url, body: body)
 
     new_state = %{state | queue: [], counter: 0}
-    {:noreply, new_state}
+    {:noreply, new_state, {:continue, :start_timer}}
   end
 end

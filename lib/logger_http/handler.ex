@@ -15,6 +15,17 @@ defmodule LoggerHTTP.Handler do
                       this parameter to 1 will effectively disable batching.
                       """
                     ],
+                    batch_timeout: [
+                      type: :integer,
+                      default: 5000,
+                      doc: """
+                      The maximum time to wait before sending a batch of logs, in milliseconds.
+                      If the queue reaches the size configured by `batch_size` before this
+                      timeout, the logs will be sent. This parameter is only used when
+                      `batch_size` is greater than 1. It can also be disabled by settings the
+                      value to `0`.
+                      """
+                    ],
                     pool_size: [
                       type: :integer,
                       doc: """
@@ -39,8 +50,7 @@ defmodule LoggerHTTP.Handler do
 
   ## TODO
 
-  1. batch logs
-  2. add overloading protections
+  add overloading protections
     1. count logs
     2. if over limit 1, go sync
     3. if over limit 2, drop logs
@@ -56,6 +66,7 @@ defmodule LoggerHTTP.Handler do
     # Configuration from user options
     :url,
     :batch_size,
+    :batch_timeout,
     :pool_size
   ]
 
