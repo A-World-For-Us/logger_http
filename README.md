@@ -1,6 +1,6 @@
 # LoggerHTTP
 
-**TODO: Add description**
+**An HTTP logger handler for Elixir applications**
 
 ## Installation
 
