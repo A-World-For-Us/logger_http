@@ -35,6 +35,24 @@ defmodule LoggerHTTP.Handler do
 
                       The default is the result of `max(10, System.schedulers_online())`.
                       """
+                    ],
+                    sync_threshold: [
+                      type: :integer,
+                      default: 300,
+                      doc: """
+                      The maximum of queued logs before switching to synchronous mode.
+                      In synchronous mode, the logger will await for logs to be sent
+                      before returning control to the caller. This option, along with
+                      `drop_threshold`, effectively implements **overload protection**.
+                      """
+                    ],
+                    drop_threshold: [
+                      type: :integer,
+                      default: 2000,
+                      doc: """
+                      The maximum of queued logs before dropping logs. This option, along
+                      with `sync_threshold`, effectively implements **overload protection**.
+                      """
                     ]
                   )
 
@@ -42,19 +60,33 @@ defmodule LoggerHTTP.Handler do
   A configurable [`:logger` handler](https://www.erlang.org/doc/apps/kernel/logger_chapter.html#handlers)
   that sends logged messages through HTTP.
 
+  ## Features
+
+  This logger handler provides the features listed here.
+
+  ### Overload protection
+
+  This handler has built-in *[overload protection](https://www.erlang.org/doc/apps/kernel/logger_chapter.html#protecting-the-handler-from-overload)*
+  via the `:sync_threshold` and `:drop_threshold` configuration options. Under normal
+  circumstances, the logs are sent asynchronously to the HTTP endpoint, returning control
+  to the caller immediately. However, if the number of queued logs exceeds the configured
+  `:sync_threshold`, the handler will switch to synchronous mode, blocking the logging
+  process until the logs are sent. Moreover, if the number of queued logs exceeds the
+  `:drop_threshold`, the handler will start dropping logs to prevent the system from
+  becoming unresponsive.
+
+  > #### Choosing the right values {: .warning}
+  >
+  > Since sending the logs is batched and there is a pool of processes, it is not abnormal
+  > to have a few logs queued. With the default configuration, `:batch_size` * `:pool_size`
+  > means at least a hundred logs can be queued before being sent. Keep this in mind when
+  > overriding the defaults, or you might end up in sync or drop mode too early!
+
   ## Configuration
 
   This handler supports the following configuration options:
 
   #{NimbleOptions.docs(@options_schema)}
-
-  ## TODO
-
-  add overloading protections
-    1. count logs
-    2. if over limit 1, go sync
-    3. if over limit 2, drop logs
-
   """
 
   alias LoggerHTTP.Sender
@@ -67,7 +99,9 @@ defmodule LoggerHTTP.Handler do
     :url,
     :batch_size,
     :batch_timeout,
-    :pool_size
+    :pool_size,
+    :sync_threshold,
+    :drop_threshold
   ]
 
   ## Callbacks for :logger_handler
@@ -92,9 +126,20 @@ defmodule LoggerHTTP.Handler do
   @doc false
   @spec log(:logger.log_event(), :logger.handler_config()) :: term()
   def log(log_event, handler_config) do
-    log_event
-    |> format_log_event(handler_config.formatter)
-    |> Sender.send_async()
+    config = handler_config.config
+
+    log_line = format_log_event(log_event, handler_config.formatter)
+
+    case Sender.get_queued_logs_count() do
+      count when count >= config.drop_threshold ->
+        :dropped
+
+      count when count >= config.sync_threshold ->
+        Sender.send_sync(log_line)
+
+      _count ->
+        Sender.send_async(log_line)
+    end
 
     :ok
   end

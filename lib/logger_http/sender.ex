@@ -5,8 +5,13 @@ defmodule LoggerHTTP.Sender do
 
   ## Sender pool public API
 
+  @queued_logs_key {__MODULE__, :queued_logs}
+
   @spec start_pool(map()) :: DynamicSupervisor.on_start_child()
   def start_pool(config) do
+    queued_logs_counter = :counters.new(1, [:write_concurrency])
+    :persistent_term.put(@queued_logs_key, queued_logs_counter)
+
     DynamicSupervisor.start_child(
       LoggerHTTP.DynamicSupervisor,
       {PartitionSupervisor,
@@ -18,6 +23,8 @@ defmodule LoggerHTTP.Sender do
 
   @spec stop_pool(pid()) :: :ok | {:error, :not_found}
   def stop_pool(pid) do
+    :persistent_term.erase(@queued_logs_key)
+
     DynamicSupervisor.terminate_child(LoggerHTTP.DynamicSupervisor, pid)
   end
 
@@ -26,11 +33,39 @@ defmodule LoggerHTTP.Sender do
     GenServer.start_link(__MODULE__, options)
   end
 
+  @spec increase_queued_logs_counter() :: :ok
+  defp increase_queued_logs_counter do
+    counter = :persistent_term.get(@queued_logs_key)
+    :counters.add(counter, 1, 1)
+  end
+
+  @spec decrease_queued_logs_counter(pos_integer()) :: :ok
+  defp decrease_queued_logs_counter(decr) do
+    counter = :persistent_term.get(@queued_logs_key)
+    :counters.sub(counter, 1, decr)
+  end
+
+  @doc """
+  Returns the number of logs currently queued for sending.
+  """
+  @spec get_queued_logs_count() :: non_neg_integer()
+  def get_queued_logs_count do
+    counter = :persistent_term.get(@queued_logs_key)
+    :counters.get(counter, 1)
+  end
+
   ## Sender public API
 
   @spec send_async(:unicode.chardata()) :: :ok
   def send_async(log_line) do
+    increase_queued_logs_counter()
     GenServer.cast(random_partition(), {:send_log, log_line})
+  end
+
+  @spec send_sync(binary()) :: :ok
+  def send_sync(log_line) do
+    increase_queued_logs_counter()
+    :ok = GenServer.call(random_partition(), {:send_log, log_line}, 30_000)
   end
 
   defp random_partition do
@@ -41,7 +76,7 @@ defmodule LoggerHTTP.Sender do
 
   ## GenServer callbacks
 
-  defstruct [:config, :queue, :counter, :timeout_ref]
+  defstruct [:config, :queue, :counter, :timeout_ref, :callers]
 
   @impl GenServer
   def init(config) do
@@ -49,7 +84,8 @@ defmodule LoggerHTTP.Sender do
       config: config,
       queue: [],
       counter: 0,
-      timeout_ref: nil
+      timeout_ref: nil,
+      callers: []
     }
 
     {:ok, state, {:continue, :start_timer}}
@@ -62,11 +98,24 @@ defmodule LoggerHTTP.Sender do
     |> reply_to_log_request()
   end
 
+  @impl GenServer
+  def handle_call({:send_log, log_line}, from, state) do
+    state
+    |> enqueue_log(log_line)
+    |> add_caller(from)
+    |> reply_to_log_request()
+  end
+
   defp enqueue_log(state, log_line) do
     queue = [log_line | state.queue]
     counter = state.counter + 1
 
     %{state | queue: queue, counter: counter}
+  end
+
+  defp add_caller(state, caller) do
+    callers = [caller | state.callers]
+    %{state | callers: callers}
   end
 
   defp reply_to_log_request(state) do
@@ -109,7 +158,10 @@ defmodule LoggerHTTP.Sender do
     # TODO allow other HTTP adapters, make Req dependency optional
     Req.post!(state.config.url, body: body)
 
-    new_state = %{state | queue: [], counter: 0}
+    decrease_queued_logs_counter(state.counter)
+    Enum.each(state.callers, &GenServer.reply(&1, :ok))
+
+    new_state = %{state | queue: [], counter: 0, callers: []}
     {:noreply, new_state, {:continue, :start_timer}}
   end
 end
