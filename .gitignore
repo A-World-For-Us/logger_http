@@ -24,3 +24,6 @@ logger_http-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# Dyalizer PLT files
+/priv/plts

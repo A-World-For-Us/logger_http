@@ -17,6 +17,14 @@ defmodule LoggerHTTP.MixProject do
       description: "An HTTP logger handler for Elixir applications",
       package: [
         links: %{"GitHub" => @url}
+      ],
+
+      # Dialyzer
+      dialyzer: [
+        # Put the project-level PLT in the priv/ directory (instead of the default _build/ location)
+        # for the CI to be able to cache it between builds
+        plt_local_path: "priv/plts/project.plt",
+        plt_core_path: "priv/plts/core.plt"
       ]
     ]
   end
@@ -29,12 +37,21 @@ defmodule LoggerHTTP.MixProject do
     ]
   end
 
+  def cli do
+    [
+      preferred_envs: [
+        dialyzer: :test
+      ]
+    ]
+  end
+
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
       {:nimble_options, "~> 1.0"},
       {:req, "~> 0.5", optional: true},
-      {:ex_doc, "~> 0.31", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.31", only: :dev, runtime: false},
+      {:dialyxir, "~> 1.4", only: :test, runtime: false}
     ]
   end
 
