@@ -5,6 +5,24 @@ defmodule LoggerHTTP.Handler do
                       required: true,
                       doc: "The HTTP endpoint to send logs to."
                     ],
+                    adapter: [
+                      type: {:or, [:atom, :keyword_list, {:tuple, [:atom, :keyword_list]}]},
+                      default: {LoggerHTTP.Adapter.Req, []},
+                      doc: """
+                      Configuration for the adapter module, used both to send logs and
+                      handle errors.
+
+                      The value can be one of the following:
+                      - a keyword list to configure the default adapter `LoggerHTTP.Adapter.Req`,
+                      - a module implementing the`LoggerHTTP.Adapter` behaviour to use a
+                      custom adapter,
+                      - a 2-tuple containing a module and a keyword list to use a configured
+                      custom adapter.
+
+                      The configuration is validated by the callback
+                      `c:LoggerHTTP.Adapter.cast_options/1` of the adapter.
+                      """
+                    ],
                     batch_size: [
                       type: :integer,
                       default: 10,
@@ -97,6 +115,7 @@ defmodule LoggerHTTP.Handler do
 
     # Configuration from user options
     :url,
+    :adapter,
     :batch_size,
     :batch_timeout,
     :pool_size,
@@ -161,8 +180,27 @@ defmodule LoggerHTTP.Handler do
       new_config
       |> NimbleOptions.validate!(@options_schema)
       |> Map.put_new_lazy(:pool_size, fn -> max(10, System.schedulers_online()) end)
+      |> Map.update!(:adapter, &cast_adapter/1)
 
     struct!(existing_config, validated_config)
+  end
+
+  defp cast_adapter(adapter_or_options) do
+    {module, options} =
+      case adapter_or_options do
+        {_module, _options} = adapter -> adapter
+        adapter when is_atom(adapter) -> {adapter, []}
+        options when is_list(options) -> {LoggerHTTP.Adapter.Req, options}
+      end
+
+    Code.ensure_loaded!(module)
+
+    validated_options =
+      if function_exported?(module, :cast_options, 1),
+        do: module.cast_options(options),
+        else: options
+
+    {module, validated_options}
   end
 
   defp start_sender_pool(%__MODULE__{} = config) do

@@ -33,7 +33,7 @@ defmodule LoggerHTTP.MixProject do
   defp deps do
     [
       {:nimble_options, "~> 1.0"},
-      {:req, "~> 0.5"},
+      {:req, "~> 0.5", optional: true},
       {:ex_doc, "~> 0.31", only: :dev, runtime: false}
     ]
   end

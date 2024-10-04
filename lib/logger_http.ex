@@ -4,12 +4,14 @@ defmodule LoggerHTTP do
 
   ## Installation
 
-  Add `logger_http` to your list of dependencies in `mix.exs`:
+  Add `logger_http` to your list of dependencies in `mix.exs`. If you plan on using the
+  default adapter - which uses the `:req` library - add it to your dependencies too:
 
       defp deps do
         [
           ...
-          {:logger_http, "~> 0.1"}
+          {:logger_http, "~> 0.1"},
+          {:req, "~> 0.5"}
         ]
       end
 
@@ -48,5 +50,32 @@ defmodule LoggerHTTP do
       end
 
   See `LoggerHTTP.Handler` to configure the handler.
+
+  ## Custom error handling
+
+  The default behaviour when an error occurs when sending the logs is to print the error
+  to `:stderr`. The log queue is kept as is and an other attempt to send them is made
+  later.
+
+  If you need to customize this behaviour while keeping sending logs as the default adapter
+  does, you can create a custom adapter and delegate the `c:LoggerHTTP.Adapter.cast_options/1`
+  and `c:LoggerHTTP.Adapter.send_logs/3` callbacks to the default adapter.
+
+      defmodule MyAdapter do
+        @behaviour LoggerHTTP.Adapter
+
+        @impl LoggerHTTP.Adapter
+        defdelegate cast_options(options), to: LoggerHTTP.Adapter.Req
+
+        @impl LoggerHTTP.Adapter
+        defdelegate send_logs(url, logs, options), to: LoggerHTTP.Adapter.Req
+
+        @impl LoggerHTTP.Adapter
+        def handle_error(error, options) do
+          # Custom error handling
+        end
+      end
+
+  See `LoggerHTTP.Adapter` for more information on creating custom adapters.
   """
 end

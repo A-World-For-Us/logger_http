@@ -151,17 +151,19 @@ defmodule LoggerHTTP.Sender do
     end
 
     logs = Enum.reverse(state.queue)
-    body = Enum.intersperse(logs, ?\n)
+    {adapter, options} = state.config.adapter
 
-    # TODO configure http verb
-    # TODO handle errors
-    # TODO allow other HTTP adapters, make Req dependency optional
-    Req.post!(state.config.url, body: body)
+    case adapter.send_logs(state.config.url, logs, options) do
+      :ok ->
+        decrease_queued_logs_counter(state.counter)
+        Enum.each(state.callers, &GenServer.reply(&1, :ok))
 
-    decrease_queued_logs_counter(state.counter)
-    Enum.each(state.callers, &GenServer.reply(&1, :ok))
+        new_state = %{state | queue: [], counter: 0, callers: []}
+        {:noreply, new_state, {:continue, :start_timer}}
 
-    new_state = %{state | queue: [], counter: 0, callers: []}
-    {:noreply, new_state, {:continue, :start_timer}}
+      {:error, error} ->
+        adapter.handle_error(error, options)
+        {:noreply, state, {:continue, :start_timer}}
+    end
   end
 end
