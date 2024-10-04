@@ -16,6 +16,8 @@ defmodule LoggerHTTP.MixProject do
       # Hex
       description: "An HTTP logger handler for Elixir applications",
       package: [
+        files: ["lib", "LICENSE", "mix.exs"],
+        licenses: ["MIT"],
         links: %{"GitHub" => @url}
       ],
 
