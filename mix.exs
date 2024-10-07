@@ -10,16 +10,13 @@ defmodule LoggerHTTP.MixProject do
       version: @version,
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
+      aliases: aliases(),
       deps: deps(),
       docs: docs(),
 
       # Hex
       description: "An HTTP logger handler for Elixir applications",
-      package: [
-        files: ["lib", "LICENSE", "mix.exs"],
-        licenses: ["MIT"],
-        links: %{"GitHub" => @url}
-      ],
+      package: package(),
 
       # Dialyzer
       dialyzer: [
@@ -47,12 +44,21 @@ defmodule LoggerHTTP.MixProject do
     ]
   end
 
+  defp aliases do
+    [
+      release: [
+        "git_ops.release --yes"
+      ]
+    ]
+  end
+
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
       {:nimble_options, "~> 1.0"},
       {:req, "~> 0.5", optional: true},
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
+      {:git_ops, "~> 2.6", only: :dev, runtime: false},
       {:dialyxir, "~> 1.4", only: :test, runtime: false}
     ]
   end
@@ -60,8 +66,19 @@ defmodule LoggerHTTP.MixProject do
   defp docs do
     [
       main: "LoggerHTTP",
+      extras: ["CHANGELOG.md"],
       source_ref: "v#{@version}",
       source_url: @url
+    ]
+  end
+
+  defp package do
+    [
+      licenses: ["MIT"],
+      links: %{
+        "GitHub" => @url,
+        "Changelog" => "#{@url}/blob/#{@version}/CHANGELOG.md"
+      }
     ]
   end
 end
